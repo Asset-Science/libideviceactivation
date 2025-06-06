@@ -32,51 +32,25 @@
 #include <libxml/HTMLtree.h>
 #include <curl/curl.h>
 
-#ifdef IDEVICE_ACTIVATION_STATIC
-  #define IDEVICE_ACTIVATION_API
-#elif defined(_WIN32)
-  #define IDEVICE_ACTIVATION_API __declspec( dllexport )
+#ifdef _WIN32
+#pragma warning (disable: 4703)
+#define IDEVICE_ACTIVATION_API __declspec( dllexport )
 #else
-  #if __GNUC__ >= 4
-    #define IDEVICE_ACTIVATION_API __attribute__((visibility("default")))
-  #else
-    #define IDEVICE_ACTIVATION_API
-  #endif
+#ifdef HAVE_FVISIBILITY
+#define IDEVICE_ACTIVATION_API __attribute__((visibility("default")))
+#else
+#define IDEVICE_ACTIVATION_API
+#endif
 #endif
 
 #ifdef _WIN32
 #include <windows.h>
 #define strncasecmp _strnicmp
+#else
+#include <pthread.h>
 #endif
 
 #include <libideviceactivation.h>
-
-// Reference: https://stackoverflow.com/a/2390626/1806760
-// Initializer/finalizer sample for MSVC and GCC/Clang.
-// 2010-2016 Joe Lowe. Released into the public domain.
-
-#ifdef __cplusplus
-    #define INITIALIZER(f) \
-        static void f(void); \
-        struct f##_t_ { f##_t_(void) { f(); } }; static f##_t_ f##_; \
-        static void f(void)
-#elif defined(_MSC_VER)
-    #pragma section(".CRT$XCU",read)
-    #define INITIALIZER2_(f,p) \
-        static void f(void); \
-        __declspec(allocate(".CRT$XCU")) void (*f##_)(void) = f; \
-        __pragma(comment(linker,"/include:" p #f "_")) \
-        static void f(void)
-    #ifdef _WIN64
-        #define INITIALIZER(f) INITIALIZER2_(f,"")
-    #else
-        #define INITIALIZER(f) INITIALIZER2_(f,"_")
-    #endif
-#else
-    #define INITIALIZER(f) \
-        static void f(void) __attribute__((__constructor__)); \
-        static void f(void)
-#endif
 
 #define IDEVICE_ACTIVATION_USER_AGENT_IOS "iOS Device Activator (MobileActivation-592.103.2)"
 #define IDEVICE_ACTIVATION_USER_AGENT_ITUNES "iTunes/11.1.4 (Macintosh; OS X 10.9.1) AppleWebKit/537.73.11"
@@ -854,7 +828,10 @@ void idevice_activation_request_free(idevice_activation_request_t request)
 {
 	if (!request)
 		return;
-
+	
+	if (request->url) { // Memory leak fix
+		free(request->url);
+	}
 	plist_free(request->fields);
 	free(request);
 }
@@ -878,12 +855,17 @@ void idevice_activation_request_set_fields(idevice_activation_request_t request,
 		plist_dict_new_iter(fields, &iter);
 		plist_t item = NULL;
 		do {
+			if (item) { // Memory leak fix
+				plist_free(item);
+				item = NULL;
+			}
 			plist_dict_next_item(fields, iter, NULL, &item);
 			if (item && plist_get_node_type(item) != PLIST_STRING) {
 				request->content_type = IDEVICE_ACTIVATION_CONTENT_TYPE_MULTIPART_FORMDATA;
 				break;
 			}
 		} while(item);
+		plist_mem_free(iter);
 	}
 
 	plist_dict_merge(&request->fields, fields);
@@ -1211,10 +1193,20 @@ idevice_activation_error_t idevice_activation_send_request(idevice_activation_re
 	char* key = NULL;
 	char* svalue = NULL;
 	plist_t value_node = NULL;
+	char* postdata = NULL; // Memory leak fix
+	char* postdata2 = NULL;
 
 	if (request->content_type == IDEVICE_ACTIVATION_CONTENT_TYPE_MULTIPART_FORMDATA) {
 		struct curl_httppost* last = NULL;
 		do {
+			if (value_node != NULL) { // Memory leak fix
+				plist_free(value_node);
+				value_node = NULL;
+			}
+			if (key != NULL) {
+				free(key);
+				key = NULL;
+			}
 			plist_dict_next_item(request->fields, iter, &key, &value_node);
 			if (key != NULL) {
 				if (value_node != NULL) {
@@ -1237,8 +1229,8 @@ idevice_activation_error_t idevice_activation_send_request(idevice_activation_re
 		curl_easy_setopt(handle, CURLOPT_HTTPPOST, form);
 
 	} else if (request->content_type == IDEVICE_ACTIVATION_CONTENT_TYPE_URL_ENCODED) {
-		char* postdata = (char*) malloc(sizeof(char));
-		postdata[0] = '\0';
+		char* postdata2 = (char*) malloc(sizeof(char));
+		postdata2[0] = '\0';
 		do {
 			plist_dict_next_item(request->fields, iter, &key, &value_node);
 			if (key != NULL) {
@@ -1248,16 +1240,16 @@ idevice_activation_error_t idevice_activation_send_request(idevice_activation_re
 						plist_get_string_val(value_node, &svalue);
 					} else {
 						// only strings supported
-						free(postdata);
+						free(postdata2);
 						result = IDEVICE_ACTIVATION_E_UNSUPPORTED_FIELD_TYPE;
 						goto cleanup;
 					}
 
 					char* value_encoded = urlencode(svalue);
 					if (value_encoded) {
-						const size_t new_size = strlen(postdata) + strlen(key) + strlen(value_encoded) + 3;
-						postdata = (char*) realloc(postdata, new_size);
-						sprintf(&postdata[strlen(postdata)], "%s=%s&", key, value_encoded);
+						const size_t new_size = strlen(postdata2) + strlen(key) + strlen(value_encoded) + 3;
+						postdata2 = (char*)realloc(postdata2, new_size);
+						sprintf(&postdata2[strlen(postdata2)], "%s=%s&", key, value_encoded);
 						free(value_encoded);
 					}
 
@@ -1268,13 +1260,13 @@ idevice_activation_error_t idevice_activation_send_request(idevice_activation_re
 		} while(value_node != NULL);
 
 		// remove the last '&'
-		const size_t postdata_len = strlen(postdata);
-		if (postdata_len > 0)
-			postdata[postdata_len - 1] = '\0';
+		const size_t postdata_len2 = strlen(postdata2);
+		if (postdata_len2 > 0)
+			postdata2[postdata_len2 - 1] = '\0';
 
 		curl_easy_setopt(handle, CURLOPT_POST, 1);
-		curl_easy_setopt(handle, CURLOPT_POSTFIELDS, postdata);
-		curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE, strlen(postdata));
+		curl_easy_setopt(handle, CURLOPT_POSTFIELDS, postdata2);
+		curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE, strlen(postdata2));
 	} else if (request->content_type == IDEVICE_ACTIVATION_CONTENT_TYPE_PLIST) {
 		char *postdata = NULL;
 		uint32_t postdata_len = 0;
@@ -1324,6 +1316,10 @@ idevice_activation_error_t idevice_activation_send_request(idevice_activation_re
 	result = IDEVICE_ACTIVATION_E_SUCCESS;
 
 cleanup:
+	if (postdata) // Memory leak fix
+		free(postdata);
+	if (postdata2)
+		free(postdata2);
 	free(iter);
 	if (form)
 		curl_formfree(form);

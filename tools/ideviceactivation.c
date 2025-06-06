@@ -28,7 +28,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+//#include <unistd.h>
 #include <ctype.h>
 #ifndef _WIN32
 #include <signal.h>
@@ -40,12 +40,12 @@
 #include <libimobiledevice/mobileactivation.h>
 #include <libideviceactivation.h>
 
-#ifdef _WIN32
+//#ifdef _WIN32
 #include <windows.h>
 #include <conio.h>
-#else
-#include <termios.h>
-#endif
+//#else
+//#include <termios.h>
+//#endif
 
 static void print_usage(int argc, char **argv)
 {
@@ -70,13 +70,11 @@ static void print_usage(int argc, char **argv)
 	printf("  -v, --version\t\tprint version information and exit\n");
 	printf("  -h, --help\t\tprints usage information\n");
 	printf("\n");
-	printf("Homepage:    <" PACKAGE_URL ">\n");
-	printf("Bug Reports: <" PACKAGE_BUGREPORT ">\n");
 }
 
 #ifdef _WIN32
 #define BS_CC '\b'
-#define my_getch getch
+#define my_getch _getch
 #else
 #define BS_CC 0x7f
 static int my_getch(void)
@@ -187,7 +185,7 @@ int main(int argc, char *argv[])
 			return EXIT_SUCCESS;
 		}
 		else if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "--version")) {
-			printf("ideviceactivation %s\n", PACKAGE_VERSION);
+			//printf("ideviceactivation %s\n", PACKAGE_VERSION);
 			return EXIT_SUCCESS;
 		}
 		else if (!strcmp(argv[i], "activate")) {
