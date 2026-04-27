@@ -20,7 +20,7 @@ libideviceactivation_1_0_la_LDFLAGS = $(AM_LDFLAGS) -version-info $(LIBIDEVICEAC
 libideviceactivation_1_0_la_SOURCES = \
 		activation.c
 
-if _WIN32
+if WIN32
 libideviceactivation_1_0_la_LDFLAGS += -avoid-version
 endif
 
