@@ -28,6 +28,25 @@
 #include <stdlib.h>
 #include <string.h>
 #include <libxml/parser.h>
+
+// Cross-compiler INITIALIZER macro for "run this function at module load".
+// Upstream libideviceactivation provides this via the same conditional;
+// the Asset-Science fork dropped it but kept the call site at line 99.
+#if defined(__GNUC__) || defined(__clang__)
+#define INITIALIZER(name) static void __attribute__((constructor)) name(void)
+#elif defined(_MSC_VER)
+#pragma section(".CRT$XCU",read)
+#define INITIALIZER2_(name,p) \
+	static void name(void); \
+	__declspec(allocate(".CRT$XCU")) void (*name##_)(void) = name; \
+	__pragma(comment(linker,"/include:" p #name "_")) \
+	static void name(void)
+#ifdef _WIN64
+#define INITIALIZER(name) INITIALIZER2_(name,"")
+#else
+#define INITIALIZER(name) INITIALIZER2_(name,"_")
+#endif
+#endif
 #include <libxml/xpath.h>
 #include <libxml/HTMLtree.h>
 #include <curl/curl.h>
