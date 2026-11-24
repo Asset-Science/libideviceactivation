@@ -52,6 +52,16 @@
 
 #include <libideviceactivation.h>
 
+/* DESK-4332: the fork dropped upstream's INITIALIZER macro but kept its call site below. On
+ * GCC/clang (the macOS autotools build) define it the way upstream does, so the curl global
+ * init runs at load as it did when macOS built upstream. MSVC is deliberately left alone: the
+ * Windows build compiles this file unchanged, exactly as it did before this commit. */
+#if !defined(INITIALIZER) && (defined(__GNUC__) || defined(__clang__))
+#define INITIALIZER(f) \
+	static void f(void) __attribute__((__constructor__)); \
+	static void f(void)
+#endif
+
 #define IDEVICE_ACTIVATION_USER_AGENT_IOS "iOS Device Activator (MobileActivation-592.103.2)"
 #define IDEVICE_ACTIVATION_USER_AGENT_ITUNES "iTunes/11.1.4 (Macintosh; OS X 10.9.1) AppleWebKit/537.73.11"
 #define IDEVICE_ACTIVATION_DEFAULT_URL "https://albert.apple.com/deviceservices/deviceActivation"
